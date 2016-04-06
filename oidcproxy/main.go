@@ -65,7 +65,7 @@ var (
 )
 
 func main() {
-	flag.StringVar(&issuer, "-issuer", "https://accounts.google.com", "The issuer URL of the OpenID Connect provider.")
+	flag.StringVar(&issuer, "issuer", "https://accounts.google.com", "The issuer URL of the OpenID Connect provider.")
 	flag.StringVar(&backend, "backend", "", "The URL of the backened to proxy to.")
 	flag.StringVar(&oauth2Config.RedirectURL, "redirect-url", "", "A full OAuth2 redirect URL.")
 	flag.StringVar(&oauth2Config.ClientID, "client-id", "", "The client ID of the OAuth2 client.")
@@ -251,7 +251,6 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 	func() http.Handler {
 		cookie, err := r.Cookie(cookieName)
 		if err != nil {
-			log.Println("cookie not found", r.Cookies())
 			// Only error can be ErrNoCookie https://goo.gl/o5fZ49
 			return httpRedirect("/login")
 		}
