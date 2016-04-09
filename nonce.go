@@ -20,32 +20,24 @@ type NonceSource interface {
 	ClaimNonce(nonce string) error
 }
 
-// NonceVerifier provides nonce verification to an existing IDTokenVerifier.
-func NonceVerifier(verifier IDTokenVerifier, source NonceSource) IDTokenVerifier {
-	return nonceVerifier{verifier, source}
+// VerifyNonce ensures that the ID Token contains a nonce which can be claimed by the nonce source.
+func VerifyNonce(source NonceSource) VerificationOption {
+	return nonceVerifier{source}
 }
 
 type nonceVerifier struct {
-	tokenVerifier IDTokenVerifier
-	nonceSource   NonceSource
+	nonceSource NonceSource
 }
 
-func (n nonceVerifier) Verify(rawIDToken string) (payload []byte, err error) {
-	payload, err = n.tokenVerifier.Verify(rawIDToken)
-	if err != nil {
-		return nil, err
-	}
+func (n nonceVerifier) verifyIDTokenPayload(payload []byte) error {
 	var token struct {
 		Nonce string `json:"nonce"`
 	}
 	if err := json.Unmarshal(payload, &token); err != nil {
-		return nil, fmt.Errorf("oidc: failed to unmarshal nonce: %v", err)
+		return fmt.Errorf("oidc: failed to unmarshal nonce: %v", err)
 	}
 	if token.Nonce == "" {
-		return nil, errors.New("oidc: no nonce present in ID Token")
+		return errors.New("oidc: no nonce present in ID Token")
 	}
-	if err = n.nonceSource.ClaimNonce(token.Nonce); err != nil {
-		return nil, err
-	}
-	return payload, nil
+	return n.nonceSource.ClaimNonce(token.Nonce)
 }

@@ -10,49 +10,53 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ericchiang/oidc/internal"
 	"golang.org/x/net/context"
 	"golang.org/x/oauth2"
 )
 
 var (
+	// ErrTokenExpired indicates that a token parsed by a verifier has expired.
 	ErrTokenExpired = errors.New("ID Token expired")
-	// The requested resource is not supported by the provider.
+	// ErrNotSupported indicates that the requested optional OpenID Connect endpoint is not supported by the provider.
 	ErrNotSupported = errors.New("endpoint not supported")
 )
+
+// InsecureAllowHTTP is the context key to use with golang.org/x/net/context's
+// WithValue function to allow issuers to use the scheme "http" instead of "https".
+//
+//     ctx := context.WithValue(context.TODO(), oidc.InscureAllowHTTP, true)
+//     provider, err := oidc.NewProvider(ctx, "http://example.com")
+//
+var InsecureAllowHTTP internal.ContextKey
 
 // ScopeOpenID is the mandatory scope for all OpenID Connect OAuth2 requests.
 const ScopeOpenID = "openid"
 
-// IDTokenVerifier provides some verification on a raw ID Token, such as verifing the
-// JWT signatures or expiration.
-type IDTokenVerifier interface {
-	// Verify verifies some property of the JWT and returns the associated payload.
-	Verify(rawIDToken string) (payload []byte, err error)
-}
-
-// Provider contains a subset of the OpenID Connect provider metadata.
-//
-// Issuer, AuthURL, TokenURL, and JWKSURL are all manditory fields.
+// Provider contains the subset of the OpenID Connect provider metadata needed to request
+// and verify ID Tokens.
 type Provider struct {
-	Issuer          string   `json:"issuer"`
-	AuthURL         string   `json:"authorization_endpoint"`
-	TokenURL        string   `json:"token_endpoint"`
-	JWKSURL         string   `json:"jwks_uri"`
-	UserInfoURL     string   `json:"userinfo_endpoint"`
-	Scopes          []string `json:"scopes_supported"`
-	ClaimsSupported []string `json:"claims_supported"`
+	Issuer      string `json:"issuer"`
+	AuthURL     string `json:"authorization_endpoint"`
+	TokenURL    string `json:"token_endpoint"`
+	JWKSURL     string `json:"jwks_uri"`
+	UserInfoURL string `json:"userinfo_endpoint"`
 }
 
 // NewProvider uses the OpenID Connect disovery mechanism to construct a Provider.
 func NewProvider(ctx context.Context, issuer string) (*Provider, error) {
-	u, err := url.Parse(issuer)
-	if err != nil {
-		return nil, fmt.Errorf("oidc: failed to parse issuer as URL: %v", err)
+	if !allowHTTP(ctx) {
+		u, err := url.Parse(issuer)
+		if err != nil {
+			return nil, fmt.Errorf("oidc: failed to parse issuer as URL: %v", err)
+		}
+		if u.Scheme != "https" {
+			return nil, errors.New("oidc: issuer must have scheme 'https'")
+		}
 	}
-	u.Path = strings.TrimSuffix(u.Path, "/") + "/.well-known/openid-configuration"
 
-	cli := contextClient(ctx)
-	resp, err := cli.Get(u.String())
+	wellKnown := strings.TrimSuffix(issuer, "/") + "/.well-known/openid-configuration"
+	resp, err := contextClient(ctx).Get(wellKnown)
 	if err != nil {
 		return nil, err
 	}
@@ -119,19 +123,94 @@ func (p *Provider) UserInfo(ctx context.Context, tokenSource oauth2.TokenSource)
 	return &userInfo, nil
 }
 
-// Verifier returns an IDTokenVerifier that uses the provider's key set to verify JWTs.
+// IDTokenVerifier provides verification for ID Tokens.
+type IDTokenVerifier struct {
+	issuer  string
+	keySet  *remoteKeySet
+	options []VerificationOption
+}
+
+// Verify parse the raw ID Token, verifies it's been signed by the provider, preforms
+// additional verification, such as checking the expiration, and returns the claims.
+func (v *IDTokenVerifier) Verify(rawIDToken string) (payload []byte, err error) {
+	payload, err = v.keySet.verifyJWT(rawIDToken)
+	if err != nil {
+		return nil, err
+	}
+	var token struct {
+		Exp    float64 `json:"exp"` // JSON numbers are always float64s.
+		Issuer string  `json:"iss"`
+	}
+	if err := json.Unmarshal(payload, &token); err != nil {
+		return nil, fmt.Errorf("oidc: failed to unmarshal claims: %v", err)
+	}
+	if v.issuer != token.Issuer {
+		return nil, fmt.Errorf("oidc: iss field did not match provider issuer")
+	}
+	if time.Unix(int64(token.Exp), 0).Before(time.Now().Round(time.Second)) {
+		return nil, ErrTokenExpired
+	}
+	for _, option := range v.options {
+		if err := option.verifyIDTokenPayload(payload); err != nil {
+			return nil, err
+		}
+	}
+	return payload, nil
+}
+
+// NewVerifier returns an IDTokenVerifier that uses the provider's key set to verify JWTs.
 //
 // The verifier queries the provider to update keys when a signature cannot be verified by the
 // set of keys cached from the previous request.
-//
-// If the token has expired, the verifier will refuse to process it.
-func (p *Provider) Verifier(ctx context.Context) IDTokenVerifier {
-	return issuerVerifier{
-		issuer: p.Issuer,
-		tokenVerifier: expVerifier{
-			tokenVerifier: newRemoteKeySet(ctx, p.JWKSURL),
-		},
+func (p *Provider) NewVerifier(ctx context.Context, options ...VerificationOption) *IDTokenVerifier {
+	return &IDTokenVerifier{
+		issuer:  p.Issuer,
+		keySet:  newRemoteKeySet(ctx, p.JWKSURL),
+		options: options,
 	}
+}
+
+// VerificationOption is an option provided to Provider.NewVerifier.
+type VerificationOption interface {
+	verifyIDTokenPayload(raw []byte) error
+}
+
+// VerifyClient ensures that an ID Token was issued for the specific client.
+//
+// Note that a verified token may be valid for other clients, as OpenID Connect allows a token to have
+// multiple audiences.
+func VerifyClient(clientID string) VerificationOption {
+	return clientVerifier{clientID}
+}
+
+type clientVerifier struct {
+	clientID string
+}
+
+func (c clientVerifier) verifyIDTokenPayload(payload []byte) error {
+	var token struct {
+		Aud string `json:"aud"`
+	}
+	if err := json.Unmarshal(payload, &token); err == nil {
+		if token.Aud != c.clientID {
+			return errors.New("oidc: id token aud field did not match client_id")
+		}
+		return nil
+	}
+
+	// Aud can optionally be an array of strings
+	var token2 struct {
+		Aud []string `json:"aud"`
+	}
+	if err := json.Unmarshal(payload, &token2); err != nil {
+		return fmt.Errorf("oidc: failed to unmarshal aud claim: %v", err)
+	}
+	for _, aud := range token2.Aud {
+		if aud == c.clientID {
+			return nil
+		}
+	}
+	return errors.New("oidc: id token aud field did not match client_id")
 }
 
 // This method is internal to golang.org/x/oauth2. Just copy it.
@@ -144,46 +223,10 @@ func contextClient(ctx context.Context) *http.Client {
 	return http.DefaultClient
 }
 
-// expVerifier ensures an ID Token has not expired.
-type expVerifier struct {
-	tokenVerifier IDTokenVerifier
-}
-
-func (e expVerifier) Verify(rawIDToken string) (payload []byte, err error) {
-	payload, err = e.tokenVerifier.Verify(rawIDToken)
-	if err != nil {
-		return nil, err
+func allowHTTP(ctx context.Context) bool {
+	if ctx == nil {
+		return false
 	}
-	var token struct {
-		Exp int64 `json:"exp"`
-	}
-	if err := json.Unmarshal(payload, &token); err != nil {
-		return nil, fmt.Errorf("oidc: failed to unmarshal expiration: %v", err)
-	}
-	if time.Unix(token.Exp, 0).Before(time.Now().Round(time.Second)) {
-		return nil, ErrTokenExpired
-	}
-	return payload, nil
-}
-
-type issuerVerifier struct {
-	issuer        string
-	tokenVerifier IDTokenVerifier
-}
-
-func (i issuerVerifier) Verify(rawIDToken string) (payload []byte, err error) {
-	payload, err = i.tokenVerifier.Verify(rawIDToken)
-	if err != nil {
-		return nil, err
-	}
-	var token struct {
-		Issuer string `json:"iss"`
-	}
-	if err := json.Unmarshal(payload, &token); err != nil {
-		return nil, fmt.Errorf("oidc: failed to unmarshal issuer: %v", err)
-	}
-	if i.issuer != token.Issuer {
-		return nil, fmt.Errorf("oidc: iss field did not match provider issuer")
-	}
-	return payload, nil
+	allow, ok := ctx.Value(InsecureAllowHTTP).(bool)
+	return ok && allow
 }

@@ -55,7 +55,7 @@ Or the provider can be used to verify and inspect the OpenID Connect
 [token response](https://openid.net/specs/openid-connect-core-1_0.html#TokenResponse).
 
 ```go
-verifier := provider.Verifier(ctx)
+verifier := provider.NewVerifier(ctx)
 ```
 
 The returned verifier can be used to ensure the ID Token (a JWT) is signed by the provider. 

@@ -42,7 +42,7 @@ func main() {
 	}
 
 	// Use the nonce source to create a custom ID Token verifier.
-	nonceEnabledVerifier := oidc.NonceVerifier(provider.Verifier(ctx), nonceSource{})
+	nonceEnabledVerifier := provider.NewVerifier(ctx, oidc.VerifyNonce(nonceSource{}))
 
 	config := oauth2.Config{
 		ClientID:     clientID,

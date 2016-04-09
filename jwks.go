@@ -39,7 +39,7 @@ func newRemoteKeySet(ctx context.Context, jwksURL string) *remoteKeySet {
 	return r
 }
 
-func (r *remoteKeySet) Verify(jwt string) (payload []byte, err error) {
+func (r *remoteKeySet) verifyJWT(jwt string) (payload []byte, err error) {
 	jws, err := jose.ParseSigned(jwt)
 	if err != nil {
 		return nil, fmt.Errorf("parsing jwt: %v", err)

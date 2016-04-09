@@ -27,7 +27,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	verifier := provider.Verifier(ctx)
+	verifier := provider.NewVerifier(ctx)
 
 	config := oauth2.Config{
 		ClientID:     clientID,
@@ -59,16 +59,19 @@ func main() {
 			http.Error(w, "No id_token field in oauth2 token.", http.StatusInternalServerError)
 			return
 		}
+		log.Println(rawIDToken)
 		idTokenPayload, err := verifier.Verify(rawIDToken)
 		if err != nil {
 			http.Error(w, "Failed to verify ID Token: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 
+		oauth2Token.AccessToken = "*REDACTED*"
+
 		rawMessage := json.RawMessage(idTokenPayload)
 		resp := struct {
-			OAuth2Token *oauth2.Token
-			IDToken     *json.RawMessage // ID Token payload is just JSON.
+			OAuth2Token   *oauth2.Token
+			IDTokenClaims *json.RawMessage // ID Token payload is just JSON.
 		}{oauth2Token, &rawMessage}
 		data, err := json.MarshalIndent(resp, "", "    ")
 		if err != nil {

@@ -31,6 +31,7 @@ const (
 	emailHeaderName = "X-User-Email"
 )
 
+// Session represents a logged in user's active session.
 type Session struct {
 	Email   string
 	Expires time.Time
@@ -51,10 +52,10 @@ var (
 	cookieExp time.Duration
 
 	// Set up during initial configuration.
-	oauth2Config   *oauth2.Config = new(oauth2.Config)
+	oauth2Config   = new(oauth2.Config)
 	oidcProvider   *oidc.Provider
 	backendHandler *httputil.ReverseProxy
-	verifier       oidc.IDTokenVerifier
+	verifier       *oidc.IDTokenVerifier
 
 	// Regexps of emails to allow.
 	allowEmail []*regexp.Regexp
@@ -125,7 +126,7 @@ func main() {
 	}
 
 	nonceSource = newNonceSource(context.TODO())
-	verifier = oidc.NonceVerifier(oidcProvider.Verifier(context.TODO()), nonceSource)
+	verifier = oidcProvider.NewVerifier(context.TODO(), oidc.VerifyNonce(nonceSource))
 
 	oauth2Config.Endpoint = oidcProvider.Endpoint()
 	oauth2Config.Scopes = strings.Split(scopes, ",")

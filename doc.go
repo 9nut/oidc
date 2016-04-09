@@ -43,7 +43,7 @@ For callbacks the provider can be used to query for user information such as ema
 
 The provider also has the ability to verify ID Tokens.
 
-	verifier := provider.Verifier(ctx)
+	verifier := provider.NewVerifier(ctx)
 
 The returned verifier can be used to perform basic validation on ID Token issued by the provider,
 including verifying the JWT signature. It then returns the payload.
@@ -90,7 +90,7 @@ First, provide a nonce source for nonce validation. This will then be used to wr
 provider ID Token verifier.
 
 	// A verifier which boths verifies the ID Token signature and nonce.
-	nonceEnabledVerifier := oidc.NonceVerifier(provider.Verifier(ctx), nonceSource)
+	nonceEnabledVerifier := provider.NewVerifier(ctx, oidc.VerifyNonce(nonceSource))
 
 For the redirect provide a nonce auth code option. This will be placed as a URL parameter during
 the client redirect.
