@@ -175,11 +175,11 @@ type VerificationOption interface {
 	verifyIDTokenPayload(raw []byte) error
 }
 
-// VerifyClient ensures that an ID Token was issued for the specific client.
+// VerifyAudience ensures that an ID Token was issued for the specific client.
 //
 // Note that a verified token may be valid for other clients, as OpenID Connect allows a token to have
 // multiple audiences.
-func VerifyClient(clientID string) VerificationOption {
+func VerifyAudience(clientID string) VerificationOption {
 	return clientVerifier{clientID}
 }
 
