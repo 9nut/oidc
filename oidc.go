@@ -30,8 +30,20 @@ var (
 //
 var InsecureAllowHTTP internal.ContextKey
 
-// ScopeOpenID is the mandatory scope for all OpenID Connect OAuth2 requests.
-const ScopeOpenID = "openid"
+const (
+	// ScopeOpenID is the mandatory scope for all OpenID Connect OAuth2 requests.
+	ScopeOpenID = "openid"
+
+	// ScopeOfflineAccess is an optional scope defined by OpenID Connect for requesting
+	// OAuth2 refresh tokens.
+	//
+	// Support for this scope differs between OpenID Connect providers. For instance
+	// Google rejects it, favoring appending "access_type=offline" as part of the
+	// authorization request instead.
+	//
+	// See: https://openid.net/specs/openid-connect-core-1_0.html#OfflineAccess
+	ScopeOfflineAccess = "offline_access"
+)
 
 // Provider contains the subset of the OpenID Connect provider metadata needed to request
 // and verify ID Tokens.
@@ -78,7 +90,7 @@ func NewProvider(ctx context.Context, issuer string) (*Provider, error) {
 	// raw claims do not get error checks
 	json.Unmarshal(body, &p.raw)
 	if p.Issuer != issuer {
-		return nil, fmt.Errorf("oidc: issuer did not match the issuer field returned by provider metadata")
+		return nil, fmt.Errorf("oidc: issuer did not match the issuer returned by provider, expected %q got %q", issuer, p.Issuer)
 	}
 	return &p, nil
 }
