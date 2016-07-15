@@ -41,6 +41,9 @@ type Provider struct {
 	TokenURL    string `json:"token_endpoint"`
 	JWKSURL     string `json:"jwks_uri"`
 	UserInfoURL string `json:"userinfo_endpoint"`
+
+	// Optionally contains extra claims.
+	raw map[string]interface{}
 }
 
 // NewProvider uses the OpenID Connect disovery mechanism to construct a Provider.
@@ -60,15 +63,32 @@ func NewProvider(ctx context.Context, issuer string) (*Provider, error) {
 	if err != nil {
 		return nil, err
 	}
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%s: %s", resp.Status, body)
+	}
 	defer resp.Body.Close()
 	var p Provider
-	if err := json.NewDecoder(resp.Body).Decode(&p); err != nil {
-		return nil, fmt.Errorf("oidc: failed to decode provider at well known config: %v", err)
+	if err := json.Unmarshal(body, &p); err != nil {
+		return nil, fmt.Errorf("oidc: failed to decode provider discovery object: %v", err)
 	}
+	// raw claims do not get error checks
+	json.Unmarshal(body, &p.raw)
 	if p.Issuer != issuer {
 		return nil, fmt.Errorf("oidc: issuer did not match the issuer field returned by provider metadata")
 	}
 	return &p, nil
+}
+
+// Extra returns additional fields returned by the server during discovery.
+func (p *Provider) Extra(key string) interface{} {
+	if p.raw != nil {
+		return p.raw[key]
+	}
+	return nil
 }
 
 // Endpoint returns the OAuth2 auth and token endpoints for the given provider.
