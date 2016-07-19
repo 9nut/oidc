@@ -6,11 +6,9 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
-	"github.com/ericchiang/oidc/internal"
 	"golang.org/x/net/context"
 	"golang.org/x/oauth2"
 )
@@ -21,14 +19,6 @@ var (
 	// ErrNotSupported indicates that the requested optional OpenID Connect endpoint is not supported by the provider.
 	ErrNotSupported = errors.New("endpoint not supported")
 )
-
-// InsecureAllowHTTP is the context key to use with golang.org/x/net/context's
-// WithValue function to allow issuers to use the scheme "http" instead of "https".
-//
-//     ctx := context.WithValue(context.TODO(), oidc.InscureAllowHTTP, true)
-//     provider, err := oidc.NewProvider(ctx, "http://example.com")
-//
-var InsecureAllowHTTP internal.ContextKey
 
 const (
 	// ScopeOpenID is the mandatory scope for all OpenID Connect OAuth2 requests.
@@ -60,16 +50,6 @@ type Provider struct {
 
 // NewProvider uses the OpenID Connect disovery mechanism to construct a Provider.
 func NewProvider(ctx context.Context, issuer string) (*Provider, error) {
-	if !allowHTTP(ctx) {
-		u, err := url.Parse(issuer)
-		if err != nil {
-			return nil, fmt.Errorf("oidc: failed to parse issuer as URL: %v", err)
-		}
-		if u.Scheme != "https" {
-			return nil, errors.New("oidc: issuer must have scheme 'https'")
-		}
-	}
-
 	wellKnown := strings.TrimSuffix(issuer, "/") + "/.well-known/openid-configuration"
 	resp, err := contextClient(ctx).Get(wellKnown)
 	if err != nil {
@@ -253,12 +233,4 @@ func contextClient(ctx context.Context) *http.Client {
 		}
 	}
 	return http.DefaultClient
-}
-
-func allowHTTP(ctx context.Context) bool {
-	if ctx == nil {
-		return false
-	}
-	allow, ok := ctx.Value(InsecureAllowHTTP).(bool)
-	return ok && allow
 }
