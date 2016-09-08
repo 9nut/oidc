@@ -249,7 +249,7 @@ func (v *IDTokenVerifier) Verify(rawIDToken string) (*IDToken, error) {
 		Subject:  token.Subject,
 		Audience: []string(token.Audience),
 		Expiry:   time.Time(token.Expiry),
-		IssuedAt: time.Time(token.Expiry),
+		IssuedAt: time.Time(token.IssuedAt),
 		Nonce:    token.Nonce,
 		claims:   payload,
 	}
